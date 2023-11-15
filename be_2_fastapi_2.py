@@ -39,15 +39,9 @@ import uuid
 import asyncio
 
 import os
-import time
-import json
 import sys
-from typing import Any, Iterable, List
-import langchain
-from langchain.docstore.document import Document
-
 import openai
-
+from langchain.chat_models import ChatOpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -57,6 +51,10 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 openai.organization = os.getenv("ORGANIZATION")
 sys.path.append(os.getenv("PYTHONPATH"))
 llm_model = "gpt-3.5-turbo"
+
+llm = ChatOpenAI(model_name=llm_model, temperature=0)
+PDF_FREELANCER_GUIDELINES_FILE = "./data/프리랜서 가이드라인 (출판본).pdf"
+CSV_OUTDOOR_CLOTHING_CATALOG_FILE = "data/OutdoorClothingCatalog_1000.csv"
 
 is_debug = True
 app = FastAPI(debug=is_debug, docs_url="/api-docs")
@@ -81,13 +79,26 @@ class PromptResult(BaseModel):
 
 
 
+tokens = {
 
+}
 @app.get("/api/new_token")
 async def new_token(db: int):
   # 원하는 db 처리 로직을 여기에 추가하실 수 있습니다.
-  return jsonable_encoder(TokenOutput(token=str(uuid.uuid4())))
+  token=str(uuid.uuid4())
+  tools = get_tools()
+  agent_executor = create_conversational_retrieval_agent(llm, tools, verbose=True)
+  tokens[token] = agent_executor
+  return jsonable_encoder(TokenOutput(token=token))
 
 request_idx = 0
+
+from langchain_E_retrieval_tool import get_tools
+from langchain.agents.agent_toolkits import create_conversational_retrieval_agent
+
+
+# tools = get_tools()
+# agent_executor = create_conversational_retrieval_agent(llm, tools, verbose=True)
 
 @app.post("/api/prompt")
 async def process_prompt(request: PromptRequest):
@@ -96,14 +107,13 @@ async def process_prompt(request: PromptRequest):
   global request_idx
   idx = request_idx
   request_idx = request_idx + 1
-  if is_debug:
-    current_thread = threading.current_thread()
-    print(f"{idx}.{request.token} 현재 스레드: {current_thread.name} reqeust.")
-    print(f"{idx}.{request.token} reqeust.")
-  await asyncio.sleep(10)  # 예시를 위한 비동기 작업 (1초 대기)
-  if is_debug:
-    print(f"{idx}.{request.token} end.")
-  return jsonable_encoder(PromptResult(result=f"Processed: {request.prompt}"))
+
+  executor = tokens[request.token]
+  if not executor:
+    raise ValueError("token이 없습니다.")
+  result = executor({"input": request.prompt})
+
+  return jsonable_encoder(PromptResult(result=result["output"]))
 
 
 app.mount("/", StaticFiles(directory="./html-docs", html=True), name="static")
