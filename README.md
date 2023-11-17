@@ -3,3 +3,6 @@
 
 이름 : 김해리
 
+과제 파일 : chatbot_haerikim.py
+
+도저히...
